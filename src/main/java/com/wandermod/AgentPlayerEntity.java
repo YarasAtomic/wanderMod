@@ -37,7 +37,7 @@ public class AgentPlayerEntity extends BlockEntity {
 
     public static String sendMessage(String msg){
         out.println(msg);
-        String reply = "";
+        String reply = null;
         try {
             reply = in.readLine();
         } catch (IOException e) {
@@ -46,17 +46,24 @@ public class AgentPlayerEntity extends BlockEntity {
         return reply;
     }
 
-    public void connectToSocket(){
+    public boolean isConnectedTest(){
+        if(socket==null) return false;
+        String reply = sendMessage("test");
+        return sendMessage("test") != null;
+    }
+
+    public boolean connectToSocket(PlayerEntity player){
         try {
-            if(socket==null||!socket.isConnected()){
+            
+            if(socket==null||!isConnectedTest()){
+                player.sendMessage(Text.literal("Connecting..."), false);
                 socket = new Socket("localhost", 9000);
                 out = new PrintWriter(socket.getOutputStream(),true);
                 in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+                return socket.isConnected();
             }else{
-                System.out.print("Already connected");
+                return true;
             }
-
-
         } catch (UnknownHostException ex) {
 
             System.out.println("Server not found: " + ex.getMessage());
@@ -65,6 +72,7 @@ public class AgentPlayerEntity extends BlockEntity {
 
             System.out.println("I/O error: " + ex.getMessage());
         }
+        return false;
     }
 
     public void restart(){
@@ -127,21 +135,18 @@ public class AgentPlayerEntity extends BlockEntity {
         // You can also just work with a cast instead - we will check for the correct BlockEntity when calling this method anyways
         if (blockEntity instanceof AgentPlayerEntity entity) {
             // Play the sound every 200 ticks with the use of the modulo operator
-            if (entity.number % 10 == 0) {
-                world.playSound(null, pos, SoundEvents.ENTITY_EXPERIENCE_ORB_PICKUP, SoundCategory.PLAYERS, 1f, 1f);
-            }
 
             if(socket!=null&&socket.isConnected()){
                 if(!entity.hasMap){
-                    String reply = sendMessage("getMapSize");
-                    if(reply!=null){
-                        String sizeString[] = reply.split(" ");
+                    String getMapSizeReply = sendMessage("getMapSize");
+                    if(getMapSizeReply!=null){
+                        String sizeString[] = getMapSizeReply.split(" ");
                         if(sizeString.length == 2){
                             int sizeX = Integer.parseInt(sizeString[0]);
                             int sizeY = Integer.parseInt(sizeString[1]);
-                            String mapString = sendMessage("getMap");
-                            if(mapString!=null){
-                                buildMap(mapString, world, pos, sizeX, sizeY);
+                            String getMapReply = sendMessage("getMap");
+                            if(getMapReply!=null){
+                                buildMap(getMapReply, world, pos, sizeX, sizeY);
                                 entity.hasMap = true;
                             }
                         
@@ -152,9 +157,9 @@ public class AgentPlayerEntity extends BlockEntity {
                     // for(PlayerEntity player:  world.getPlayers()){
                     //     player.sendMessage(Text.literal("Update agent"), false);
                     // }
-                    String reply = sendMessage("getAgent");
-                    if(reply!=null){
-                        String posString[] = reply.split(" ");
+                    String getAgentReply = sendMessage("getAgent");
+                    if(getAgentReply!=null){
+                        String posString[] = getAgentReply.split(" ");
                         if(posString.length == 2){
                             int posX = Integer.parseInt(posString[0]);
                             int posY = Integer.parseInt(posString[1]);
@@ -168,7 +173,7 @@ public class AgentPlayerEntity extends BlockEntity {
             }
             // socketServer.tickListen();
             // Increment the tick attribute of the instance
-            entity.number++;
+            // entity.number++;
         }
     }
 }

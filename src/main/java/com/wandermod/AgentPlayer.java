@@ -17,6 +17,8 @@ import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.block.entity.BlockEntityTicker;
 import net.minecraft.block.entity.BlockEntityType;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.sound.SoundEvents;
+import net.minecraft.sound.SoundCategory;
 import net.minecraft.text.Text;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Hand;
@@ -39,10 +41,12 @@ public class AgentPlayer extends BlockWithEntity {
     @Override
     public ActionResult onUse(BlockState state, World world, BlockPos pos, PlayerEntity player, Hand hand, BlockHitResult hit) {
         if (!world.isClient) {
-            player.sendMessage(Text.literal("Agent player!"), false);
             AgentPlayerEntity be = (AgentPlayerEntity)world.getBlockEntity(pos);
-            be.connectToSocket();
-            be.restart();
+            if(be.connectToSocket( player)){
+                player.sendMessage(Text.literal("Agent run"), false);
+                world.playSound(null, pos, SoundEvents.ENTITY_EXPERIENCE_ORB_PICKUP, SoundCategory.PLAYERS, 1f, 1f);
+                be.restart();
+            }
         }
  
         return ActionResult.SUCCESS;
