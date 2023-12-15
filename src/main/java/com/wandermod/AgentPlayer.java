@@ -46,6 +46,7 @@ public class AgentPlayer extends BlockWithEntity {
                 player.sendMessage(Text.literal("Agent run"), false);
                 world.playSound(null, pos, SoundEvents.ENTITY_EXPERIENCE_ORB_PICKUP, SoundCategory.PLAYERS, 1f, 1f);
                 be.restart();
+                be.summonAgent( world,  pos);
             }
         }
  

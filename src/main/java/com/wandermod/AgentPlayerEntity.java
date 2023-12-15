@@ -9,9 +9,14 @@ import java.net.UnknownHostException;
 
 import org.jetbrains.annotations.Nullable;
 
+import net.minecraft.util.Uuids;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.block.entity.BlockEntity;
+import net.minecraft.entity.EntityPose;
+import net.minecraft.entity.EntityType;
+import net.minecraft.entity.LightningEntity;
+import net.minecraft.entity.passive.VillagerEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.network.listener.ClientPlayPacketListener;
@@ -23,6 +28,7 @@ import net.minecraft.text.Text;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3i;
+import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.World;
 
 public class AgentPlayerEntity extends BlockEntity {
@@ -34,6 +40,8 @@ public class AgentPlayerEntity extends BlockEntity {
 
     boolean hasMap = false;
     int agentCoords[] = {-1,-1};
+    VillagerEntity agent = null;
+    int agentId = -1;
 
     public static String sendMessage(String msg){
         out.println(msg);
@@ -48,7 +56,6 @@ public class AgentPlayerEntity extends BlockEntity {
 
     public boolean isConnectedTest(){
         if(socket==null) return false;
-        String reply = sendMessage("test");
         return sendMessage("test") != null;
     }
 
@@ -79,6 +86,20 @@ public class AgentPlayerEntity extends BlockEntity {
         sendMessage("restart");
     }
 
+    public static void summonAgent(World world, BlockPos pos){
+        BlockEntity blockEntity = world.getBlockEntity(pos);
+        if (blockEntity instanceof AgentPlayerEntity entity) {
+            if(entity.agentId==-1){
+                VillagerEntity agentEntity = new VillagerEntity(EntityType.VILLAGER, world);
+
+                agentEntity.setPosition(new Vec3d(entity.agentCoords[0]+pos.getX(),-1+pos.getY(),entity.agentCoords[1]+pos.getZ()));
+                agentEntity.setInvulnerable(true);
+                entity.agentId = agentEntity.getId();
+                world.spawnEntity(agentEntity);
+            }
+        }
+    }
+
     public static void buildMap(String map,World world,BlockPos pos,int sizeX,int sizeY){
         int n = 0;
         for(int i = 0; i < sizeX; i++){
@@ -91,10 +112,34 @@ public class AgentPlayerEntity extends BlockEntity {
     }
 
     public static void updateAgent(World world,BlockPos pos,int posX,int posY,AgentPlayerEntity entity){
-        world.setBlockState(pos.add(new Vec3i(entity.agentCoords[0],0,entity.agentCoords[1])),Blocks.AIR.getDefaultState());
-        world.setBlockState(pos.add(new Vec3i(posX,0,posY)),Blocks.RED_WOOL.getDefaultState());
-        entity.agentCoords[0] = posX;
-        entity.agentCoords[1] = posY;
+        // world.setBlockState(pos.add(new Vec3i(entity.agentCoords[0],0,entity.agentCoords[1])),Blocks.AIR.getDefaultState());
+        // world.setBlockState(pos.add(new Vec3i(posX,0,posY)),Blocks.RED_WOOL.getDefaultState());
+
+        if(entity.agentId!=-1){
+            VillagerEntity agentEntity = (VillagerEntity)world.getEntityById(entity.agentId);
+            if(agentEntity!=null){
+                float angle = 0;
+                // if(posX < entity.agentCoords[0]){
+                //     angle = 90;
+                // }else if(posX > entity.agentCoords[0]){
+                //     angle = 270;
+                // }else if(posY > entity.agentCoords[1]){
+                //     angle = 0;
+                // }else{
+                //     angle = 180;
+                // }
+                entity.agentCoords[0] = posX;
+                entity.agentCoords[1] = posY;
+                // agentEntity.updateTrackedPositionAndAngles((double)(pos.getX()+posX), (double)pos.getY(),(float)(pos.getZ()+ posY),(float)entity.number,0.0f,1);
+                agentEntity.setPos(pos.getX()+posX, pos.getY(),pos.getZ()+ posY);
+                agentEntity.setBodyYaw(entity.number);
+            }else{
+                entity.agentId=-1;
+            }
+        }else{
+            summonAgent(world,pos);
+        }
+        
     }
 
     public AgentPlayerEntity(BlockPos pos, BlockState state) {
@@ -107,6 +152,7 @@ public class AgentPlayerEntity extends BlockEntity {
         nbt.putInt("number", number);
         nbt.putBoolean("hasMap", hasMap);
         nbt.putIntArray("agentCoords", agentCoords);
+        nbt.putInt("agentEntity", agentId);
  
         super.writeNbt(nbt);
     }
@@ -117,6 +163,9 @@ public class AgentPlayerEntity extends BlockEntity {
         super.readNbt(nbt);
     
         number = nbt.getInt("number");
+        hasMap = nbt.getBoolean("hasMap");
+        agentCoords = nbt.getIntArray("agentCoords");
+        agentId = nbt.getInt("agentEntity");
     }
 
     @Nullable
@@ -173,7 +222,7 @@ public class AgentPlayerEntity extends BlockEntity {
             }
             // socketServer.tickListen();
             // Increment the tick attribute of the instance
-            // entity.number++;
+            entity.number++;
         }
     }
 }
