@@ -3,9 +3,9 @@
 	"id": "wandermod",
 	"version": "${version}",
 	"name": "Wander mod",
-	"description": "This is an example description! Tell everyone what your mod is about!",
+	"description": "A mod that communicates with an Agent Jade Program",
 	"authors": [
-		"Me!"
+		"Guillermo Medialdea"
 	],
 	"contact": {
 		"homepage": "https://fabricmc.net/",

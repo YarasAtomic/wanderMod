@@ -17,15 +17,12 @@ import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.block.entity.BlockEntityTicker;
 import net.minecraft.block.entity.BlockEntityType;
 import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.sound.SoundEvents;
-import net.minecraft.sound.SoundCategory;
-import net.minecraft.text.Text;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Hand;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Vec3i;
 import net.minecraft.world.World;
+import net.minecraft.world.WorldAccess;
 
 public class AgentPlayer extends BlockWithEntity {
     public AgentPlayer(Settings settings) {
@@ -42,12 +39,8 @@ public class AgentPlayer extends BlockWithEntity {
     public ActionResult onUse(BlockState state, World world, BlockPos pos, PlayerEntity player, Hand hand, BlockHitResult hit) {
         if (!world.isClient) {
             AgentPlayerEntity be = (AgentPlayerEntity)world.getBlockEntity(pos);
-            if(be.connectToSocket( player)){
-                player.sendMessage(Text.literal("Agent run"), false);
-                world.playSound(null, pos, SoundEvents.ENTITY_EXPERIENCE_ORB_PICKUP, SoundCategory.PLAYERS, 1f, 1f);
-                be.restart();
-                be.summonAgent( world,  pos);
-            }
+
+            be.activate(world,pos,player);
         }
  
         return ActionResult.SUCCESS;
@@ -61,5 +54,14 @@ public class AgentPlayer extends BlockWithEntity {
     @Override
     public <T extends BlockEntity> BlockEntityTicker<T> getTicker(World world, BlockState state, BlockEntityType<T> type) {
         return type == Wandermod.AGENT_PLAYER_ENTITY ? AgentPlayerEntity::tick : null;
+    }
+
+    @Override
+    public void onBroken(WorldAccess world, BlockPos pos, BlockState state) {
+        // if (!world.isClient()) {
+        //     AgentPlayerEntity be = (AgentPlayerEntity)world.getBlockEntity(pos);
+        //     be.destroyObjetives((World)world, pos);
+        //     be.destroyAgent((World)world, pos);
+        // }
     }
 }

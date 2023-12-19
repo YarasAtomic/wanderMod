@@ -6,51 +6,90 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
 import java.net.UnknownHostException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
 
 import org.jetbrains.annotations.Nullable;
 
-import net.minecraft.util.Uuids;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
+import net.minecraft.item.Item.Settings;
 import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.entity.EntityPose;
 import net.minecraft.entity.EntityType;
-import net.minecraft.entity.LightningEntity;
+import net.minecraft.entity.EquipmentSlot;
+import net.minecraft.entity.passive.SheepEntity;
 import net.minecraft.entity.passive.VillagerEntity;
+import net.minecraft.entity.mob.ZombieEntity;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.item.Item;
+import net.minecraft.item.ItemConvertible;
+import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NbtCompound;
+import net.minecraft.nbt.NbtElement;
 import net.minecraft.network.listener.ClientPlayPacketListener;
 import net.minecraft.network.packet.Packet;
 import net.minecraft.network.packet.s2c.play.BlockEntityUpdateS2CPacket;
+import net.minecraft.registry.Registries;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.text.Text;
-import net.minecraft.util.ActionResult;
+import net.minecraft.util.Identifier;
+import net.minecraft.util.Util;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3i;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.World;
 
 public class AgentPlayerEntity extends BlockEntity {
-    private int number = 7;
+
 
     static Socket socket = null;
-    static PrintWriter out;
-    static BufferedReader in;
+    static PrintWriter out = null;
+    static BufferedReader in = null;
 
-    boolean hasMap = false;
+    //NBT
+    static boolean hasMap = false;
     int agentCoords[] = {-1,-1};
-    VillagerEntity agent = null;
-    int agentId = -1;
+    UUID agentId = null;
+    UUID endId = null;
+    List<UUID> objetivesId = new ArrayList<UUID>();
+    int objetiveCount = 0;
+    int number = 0;
+
+    // Other
+    int lastPower = 0;
+
+    public void activate(World world, BlockPos pos,PlayerEntity player){
+        hasMap = false;
+        if(connectToSocket( player)){
+            if(player!=null){
+                player.sendMessage(Text.literal("Agent run"), false);
+            }
+            
+            world.playSound(null, pos, SoundEvents.ENTITY_EXPERIENCE_ORB_PICKUP, SoundCategory.PLAYERS, 1f, 1f);
+            restart();
+            destroyObjetives(world,pos);
+            setObjetives(world, pos);
+            summonAgent(world,  pos);
+            setEnd(world, pos);
+            markDirty();
+        }
+
+    }
 
     public static String sendMessage(String msg){
-        out.println(msg);
         String reply = null;
-        try {
-            reply = in.readLine();
-        } catch (IOException e) {
-            e.printStackTrace();
+        if(socket!=null){
+            out.println(msg);
+            try {
+                reply = in.readLine();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
+
         return reply;
     }
 
@@ -63,7 +102,10 @@ public class AgentPlayerEntity extends BlockEntity {
         try {
             
             if(socket==null||!isConnectedTest()){
-                player.sendMessage(Text.literal("Connecting..."), false);
+                hasMap=false;
+                if(player!=null){
+                    player.sendMessage(Text.literal("Connecting..."), false);
+                }
                 socket = new Socket("localhost", 9000);
                 out = new PrintWriter(socket.getOutputStream(),true);
                 in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
@@ -86,58 +128,148 @@ public class AgentPlayerEntity extends BlockEntity {
         sendMessage("restart");
     }
 
-    public static void summonAgent(World world, BlockPos pos){
+    public void summonAgent(World world, BlockPos pos){
         BlockEntity blockEntity = world.getBlockEntity(pos);
         if (blockEntity instanceof AgentPlayerEntity entity) {
-            if(entity.agentId==-1){
-                VillagerEntity agentEntity = new VillagerEntity(EntityType.VILLAGER, world);
+            if(entity.agentId==null){
+                ZombieEntity agentEntity = new ZombieEntity(EntityType.ZOMBIE, world);
 
-                agentEntity.setPosition(new Vec3d(entity.agentCoords[0]+pos.getX(),-1+pos.getY(),entity.agentCoords[1]+pos.getZ()));
+                agentEntity.setPosition(new Vec3d(entity.agentCoords[0]+pos.getX()+0.5,-1+pos.getY(),entity.agentCoords[1]+pos.getZ()+0.5));
                 agentEntity.setInvulnerable(true);
-                entity.agentId = agentEntity.getId();
+                agentEntity.setAiDisabled(true);
+                ItemStack is = new ItemStack(Registries.ITEM.get(new Identifier("minecraft","iron_helmet")),1);
+                
+                NbtCompound nbt = new NbtCompound();
+                nbt.putBoolean("Unbreakable", true);
+                is.setNbt(nbt);
+                agentEntity.equipStack(EquipmentSlot.HEAD, is);
+                entity.agentId = agentEntity.getUuid();
                 world.spawnEntity(agentEntity);
             }
         }
     }
 
-    public static void buildMap(String map,World world,BlockPos pos,int sizeX,int sizeY){
-        int n = 0;
-        for(int i = 0; i < sizeX; i++){
-            for(int j = 0; j < sizeY;j++){
-                BlockState block = map.charAt(n) == '0' ? Blocks.GRASS_BLOCK.getDefaultState() : Blocks.AIR.getDefaultState(); 
-                world.setBlockState(pos.add(new Vec3i(i,-1,j)),block);
-                n++;
+    public void summonEnd(World world, BlockPos blockPos,Vec3d pos){
+        VillagerEntity endEntity = new VillagerEntity(EntityType.VILLAGER, world);
+
+        endEntity.setPosition(new Vec3d(pos.getX()+blockPos.getX()+0.5,pos.getY()+blockPos.getY(),pos.getZ()+blockPos.getZ()+0.5));
+        endEntity.setInvulnerable(true);
+        endEntity.setAiDisabled(true);
+        // ItemStack is = new ItemStack(Registries.ITEM.get(new Identifier("minecraft","sponge")),1);
+        // agentEntity.equipStack(EquipmentSlot.HEAD, is);
+        endId = endEntity.getUuid();
+        world.spawnEntity(endEntity);
+    }
+
+    public void setObjetives(World world, BlockPos pos){
+        String getObjetivesReply = sendMessage("getObjetives");
+        if(getObjetivesReply!=null){
+            updateObjetives(getObjetivesReply,this,world,pos);
+        }
+    }
+
+    public void setEnd(World world, BlockPos pos){
+        String getEndReply = sendMessage("getEnd");
+        Vec3d endPos = Utils.stringToVectord(getEndReply);
+        if(endPos!=null){
+            if(endId==null){
+                summonEnd(world,pos,endPos);
+            }else{
+                VillagerEntity endEntity = Utils.getEntityByUuid(world, endId, pos,64,VillagerEntity.class);
+                if(endEntity!=null){
+                    endEntity.setPos((double)(pos.getX()+endPos.getX())+0.5, pos.getY(), (double)(pos.getZ()+endPos.getZ())+0.5);
+                }else{
+                    summonEnd(world,pos,endPos);
+                }
             }
         }
+    }
+
+    public static void buildMap(String map,World world,BlockPos pos,int sizeX,int sizeY){
+        if(map.length() == sizeX*sizeY){
+            int n = 0;
+            for(int i = 0; i < sizeX; i++){
+                for(int j = 0; j < sizeY;j++){
+                    BlockState block = map.charAt(n) == '0' ? Blocks.GRASS_BLOCK.getDefaultState() : Blocks.AIR.getDefaultState(); 
+                    world.setBlockState(pos.add(new Vec3i(i,-1,j)),block);
+                    n++;
+                }
+            }
+        }
+
     }
 
     public static void updateAgent(World world,BlockPos pos,int posX,int posY,AgentPlayerEntity entity){
         // world.setBlockState(pos.add(new Vec3i(entity.agentCoords[0],0,entity.agentCoords[1])),Blocks.AIR.getDefaultState());
         // world.setBlockState(pos.add(new Vec3i(posX,0,posY)),Blocks.RED_WOOL.getDefaultState());
 
-        if(entity.agentId!=-1){
-            VillagerEntity agentEntity = (VillagerEntity)world.getEntityById(entity.agentId);
+        if(entity.agentId!=null){
+            ZombieEntity agentEntity = Utils.getEntityByUuid(world, entity.agentId, pos, 64,ZombieEntity.class);
+
             if(agentEntity!=null){
-                float angle = 0;
-                // if(posX < entity.agentCoords[0]){
-                //     angle = 90;
-                // }else if(posX > entity.agentCoords[0]){
-                //     angle = 270;
-                // }else if(posY > entity.agentCoords[1]){
-                //     angle = 0;
-                // }else{
-                //     angle = 180;
-                // }
+                float angle = -1;
+                if(posX < entity.agentCoords[0]){
+                    angle = 90;
+                }else if(posX > entity.agentCoords[0]){
+                    angle = 270;
+                }else if(posY < entity.agentCoords[1]){
+                    angle = 180;
+                }else if(posY > entity.agentCoords[1]){
+                    angle = 0;
+                }
                 entity.agentCoords[0] = posX;
                 entity.agentCoords[1] = posY;
-                // agentEntity.updateTrackedPositionAndAngles((double)(pos.getX()+posX), (double)pos.getY(),(float)(pos.getZ()+ posY),(float)entity.number,0.0f,1);
-                agentEntity.setPos(pos.getX()+posX, pos.getY(),pos.getZ()+ posY);
-                agentEntity.setBodyYaw(entity.number);
+                // agentEntity.updateTrackedPositionAndAngles(pos.getX()+posX+0.5, pos.getY(),pos.getZ()+ posY+0.5,0.0f,(float)entity.number,1);
+                agentEntity.setPos(pos.getX()+posX+0.5, pos.getY(),pos.getZ()+ posY+0.5);
+                if(angle!=-1){
+                    agentEntity.setBodyYaw(angle);
+                    agentEntity.setHeadYaw(angle);
+                }
+
+                // agentEntity.setBodyYaw(angle);
+                // agentEntity.setPitch(entity.number);
             }else{
-                entity.agentId=-1;
+                entity.agentId=null;
             }
-        }else{
-            summonAgent(world,pos);
+        }
+    }
+
+    public void destroyObjetives(World world,BlockPos blockPos){
+        for(UUID uuid : objetivesId){
+            SheepEntity objetive = Utils.getEntityByUuid(world, uuid,blockPos,64,SheepEntity.class); // Magic number
+            if(objetive!=null){
+                objetive.kill();
+            }
+        }
+        objetivesId.clear();
+    }
+
+    public void destroyAgent(World world,BlockPos blockPos){
+        if(agentId!=null){
+            ZombieEntity objetive = Utils.getEntityByUuid(world, agentId,blockPos,64,ZombieEntity.class); // Magic number
+            if(objetive!=null){
+                objetive.kill();
+            }
+        }
+
+    }
+
+    public static void updateObjetives(String objetivesString,AgentPlayerEntity entity,World world,BlockPos pos){
+        String objetives[] = objetivesString.split(" ");
+        
+        for(int i = 0; i < objetives.length && objetives.length%2 == 0; i+=2){
+
+            SheepEntity objetive = new SheepEntity(EntityType.SHEEP, world);
+
+            objetive.setPosition(new Vec3d(Integer.parseInt(objetives[i])+0.5+pos.getX(),pos.getY(),Integer.parseInt(objetives[i+1])+0.5+pos.getZ()));
+            objetive.setInvulnerable(true);
+            objetive.setBaby(true);
+            objetive.setAiDisabled(true);
+            objetive.setSilent(true);
+
+            world.spawnEntity(objetive);
+
+            entity.objetivesId.add(objetive.getUuid());
         }
         
     }
@@ -150,10 +282,20 @@ public class AgentPlayerEntity extends BlockEntity {
     public void writeNbt(NbtCompound nbt) {
         // Save the current value of the number to the nbt
         nbt.putInt("number", number);
-        nbt.putBoolean("hasMap", hasMap);
         nbt.putIntArray("agentCoords", agentCoords);
-        nbt.putInt("agentEntity", agentId);
- 
+        if(agentId!=null) {
+            nbt.putUuid("agentEntity", agentId);
+        }
+        if(endId!=null) {
+            nbt.putUuid("endEntity", endId);
+        }
+        
+        for(int i = 0; i < objetivesId.size();i++){
+            nbt.putUuid("objetive_"+i, objetivesId.get(i));
+        }
+        objetiveCount = objetivesId.size();
+        nbt.putInt("objetiveCount",objetiveCount);
+        
         super.writeNbt(nbt);
     }
 
@@ -163,9 +305,17 @@ public class AgentPlayerEntity extends BlockEntity {
         super.readNbt(nbt);
     
         number = nbt.getInt("number");
-        hasMap = nbt.getBoolean("hasMap");
         agentCoords = nbt.getIntArray("agentCoords");
-        agentId = nbt.getInt("agentEntity");
+        agentId = nbt.getUuid("agentEntity");
+        endId = nbt.getUuid("endEntity");
+        objetiveCount = nbt.getInt("objetiveCount");
+
+        objetivesId = new ArrayList<UUID>();
+        
+        for(int i = 0; i < objetiveCount;i++){
+            UUID uuid = nbt.getUuid("objetive_"+i);
+            objetivesId.add(uuid);
+        }
     }
 
     @Nullable
@@ -186,7 +336,7 @@ public class AgentPlayerEntity extends BlockEntity {
             // Play the sound every 200 ticks with the use of the modulo operator
 
             if(socket!=null&&socket.isConnected()){
-                if(!entity.hasMap){
+                if(!hasMap){
                     String getMapSizeReply = sendMessage("getMapSize");
                     if(getMapSizeReply!=null){
                         String sizeString[] = getMapSizeReply.split(" ");
@@ -196,33 +346,32 @@ public class AgentPlayerEntity extends BlockEntity {
                             String getMapReply = sendMessage("getMap");
                             if(getMapReply!=null){
                                 buildMap(getMapReply, world, pos, sizeX, sizeY);
-                                entity.hasMap = true;
+                                hasMap = true;
                             }
-                        
                         }
                     }
-           
                 }else{
-                    // for(PlayerEntity player:  world.getPlayers()){
-                    //     player.sendMessage(Text.literal("Update agent"), false);
-                    // }
                     String getAgentReply = sendMessage("getAgent");
-                    if(getAgentReply!=null){
-                        String posString[] = getAgentReply.split(" ");
-                        if(posString.length == 2){
-                            int posX = Integer.parseInt(posString[0]);
-                            int posY = Integer.parseInt(posString[1]);
-
-                            updateAgent(world, pos, posX, posY, entity);
-                        }
+                    Vec3d agentPos = Utils.stringToVectord(getAgentReply);
+                    if(agentPos!=null){
+                        updateAgent(world, pos, (int)agentPos.getX(), (int)agentPos.getZ(), entity);
                     }
-
+                    // String getBufferReply = sendMessage("getBuffer");
+                    // if(getAgentReply!=null
+                    // &&!getAgentReply.equals("")
+                    // &&!getAgentReply.equals("\n")){
+                    //     Utils.sendMessageToAllPlayer(world,getBufferReply);
+                    // }
                 }
-        
             }
-            // socketServer.tickListen();
-            // Increment the tick attribute of the instance
-            entity.number++;
+
+            int power = world.getEmittedRedstonePower(pos, Direction.DOWN);
+            if(power>0&&entity.lastPower==0){
+                entity.activate(world, pos,null);
+            }
+            entity.lastPower = power;
+            
+            entity.markDirty();
         }
     }
 }
